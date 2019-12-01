@@ -2,10 +2,14 @@
 By Zhen Xiao, Nov 29, 2019
 """
 
-import numpy as np
 import heapq
-from typing import Union, List, Tuple
+from typing import List, Tuple, Union
+
 from IPython import embed
+
+import numpy as np
+from .DistanceField import DistanceField, plt, logging, np
+logger = logging.getLogger(__name__)
 
 
 def Dist(node1, node2):
@@ -52,9 +56,9 @@ def AStartPath(field, start: Union[List[int], Tuple[int], np.ndarray], end: Unio
                 # node_wait_visit = (Dist(child_node, end),
                 #                    dist_child_node_to_start + dist_child_node_to_start, child_node, node)
 
-                # if node_wait_visit is already in open_set and the new heuristic distance is longer, we shouldn't add it, 
+                # if node_wait_visit is already in open_set and the new heuristic distance is longer, we shouldn't add it,
                 # but find a node in heapq is time consuming, so we don't remove it
-                # the heapq will contain same nodes but different distances 
+                # the heapq will contain same nodes but different distances
                 heapq.heappush(open_set, node_wait_visit)
 
     if find_path:
@@ -69,7 +73,6 @@ def AStartPath(field, start: Union[List[int], Tuple[int], np.ndarray], end: Unio
 
 
 if __name__ == "__main__":
-    from DistanceField import DistanceField, plt
     field = DistanceField(x_size=1.0, y_size=1.0, x_origin=0.0,
                           y_origin=0.0, resolution=0.1, max_distance=0.05)
     field.AddObstacleRectangle(np.array([0.5, 0.5]), np.array(
