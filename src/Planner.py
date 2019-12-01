@@ -125,7 +125,10 @@ class Planner:
             field.Display(path=path, title="Final RRT path without shortcut")
         # Short cut path
         history = path
-        path = self.ShortCut(path)
+        path, history_short_cut = self.ShortCut(path)
+        if show_process:
+            self.m_field.Display(path=path, title="RRT Short cut",
+                                 history_data=history_short_cut, history_data_increment=False)
         return find_path, np.array(path), np.array(history)
 
     def CheckLinearPathCollisionFree(self, start, end, num=50):
@@ -232,13 +235,17 @@ class Planner:
         max_iterations = idx_max
         max_points_removed = len(path) - 2
         while iteration < max_iterations and len(idx_removed) < max_points_removed:
+            iteration += 1
             idx_left = random.randint(idx_right, idx_max)
-            logger.info(f"Iteration {iteration}")
             if idx_left + 2 <= idx_max:
                 idx_right = random.randint(idx_left + 2, idx_max)
             else:
                 continue
-            logger.info(f"idx_left {idx_left}, idx_right {idx_right}, path length {len(path) - len(idx_removed)}")
+            logger.debug(
+                f"Iteration {iteration}, idx left {idx_left}, idx right {idx_right}, idx max {idx_max}, len idx visited {len(idx_visited)}, path len {len(path)}")
+            if len(idx_visited) == round((len(path) * len(path) - 3 * (len(path) - 1) + 2) * 0.5):
+                logger.info(f"len(idx_visited): {len(idx_visited)}")
+                break
             if (idx_left, idx_right) not in idx_visited:
                 idx_visited.add((idx_left, idx_right))
             else:
@@ -247,20 +254,18 @@ class Planner:
                                                  num=np.linalg.norm(path[idx_right] - path[idx_left]) // self.m_field.m_resolution_half):
                 for i in range(idx_left+1, idx_right):
                     idx_removed.add(i)
-            logger.info(f"Iteration {iteration}, removed points {len(idx_removed)} /{max_points_removed}")
             if idx_right > idx_max - 2:
-                path = np.array([path[i] for i in range(idx_max+1) if i not in idx_removed])
+                path = np.array([path[i] for i in range(
+                    idx_max+1) if i not in idx_removed])
                 idx_right = 0
                 idx_removed = set()
                 idx_visited = set()
                 idx_max = len(path) - 1
                 max_points_removed = len(path) - 2
                 history.append(path)
-            iteration += 1
-        path = np.array([path[i] for i in range(idx_max+1) if i not in idx_removed])
-        self.m_field.Display(path=path, title="RRT Short cut", history_data=history)
-        return path
-        
+        path = np.array([path[i]
+                         for i in range(idx_max+1) if i not in idx_removed])
+        return path, history
 
 
 def Test_Planner(display_result=False, update_nearby_grd=False, random_seed=None):

@@ -284,7 +284,7 @@ class DistanceField:
                                    ].m_gradient += self._Compute2PointsGradient(grid_idx, tg)
 
     def Display(self, path=None, show_gradient=False, show_obstacle=True, show_grid=False,
-                show_obstacle_verbose=False, title="Field", curvature=None, increments=None, history_data=None):
+                show_obstacle_verbose=False, title="Field", curvature=None, increments=None, history_data=None, history_data_increment=True):
         import mpl_toolkits.axisartist as axisartist
         fig = plt.figure(figsize=(5, 5))
         ax = axisartist.Subplot(fig, 111)
@@ -363,14 +363,19 @@ class DistanceField:
             os.makedirs(f"{CWD_DIR}/imgs", exist_ok=True)
             step = math.ceil(len(history_data) / 50)
             # step = 1
-            for i in range(history_data.shape[0]+1):
-            # for i in range(len(history_data)):
-                line.set_data(history_data[:i].T)
-                # line.set_data(history_data[i].T)
+            his_len = len(history_data)
+            if history_data_increment:
+                his_len += 1
+            for i in range(his_len):
+                if history_data_increment:
+                    line.set_data(history_data[:i].T)
+                else:
+                    line.set_data(history_data[i].T)
                 plt.pause(0.01)
                 if i % step == 0:
                     files.append(f"{CWD_DIR}/imgs/{i}.png")
                     plt.savefig(files[-1])
+            plt.close()
             # input("any key to continue...")
             from .GenerateGif import CreateGif
             import shutil
