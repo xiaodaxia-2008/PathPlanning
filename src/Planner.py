@@ -2,28 +2,35 @@
 By Zhen Xiao, Nov 27, 2019
 """
 from .AStar import AStartPath
-from .DistanceField import DistanceField, logging, np
+from .DistanceField import DistanceField, logging, np, embed
 from typing import List, Union
 import math
+from scipy import interpolate
 
 logger = logging.getLogger(__name__)
 
 
 class Planner:
-    def __init__(self, learn_rate: float = 0.001, max_distance: float = 0.01):
+    def __init__(self, learn_rate: float = 0.001, resolution=0.1, max_distance: float = 0.01):
         self.m_field = DistanceField(x_size=1.0, y_size=1.0, x_origin=0.0,
-                                     y_origin=0.0, resolution=0.01, max_distance=max_distance)
+                                     y_origin=0.0, resolution=resolution, max_distance=max_distance)
         self.m_learn_rate = learn_rate
-        self.m_smooth_weight = 0.8
-        self.m_obstacle_weight = 0.2
+        self.m_smooth_weight = 0.4
+        self.m_obstacle_weight = 0.5
         self.m_curature_weight = 0.1
-        self.m_max_iterations = 5000
+        self.m_max_iterations = 2000
         self.m_iterations_after_collision_free = 10
 
     def AddObstacleRectangle(self, point0: np.ndarray, point1: np.ndarray, update_nearby_grd: bool = False):
         self.m_field.AddObstacleRectangle(point0, point1, update_nearby_grd)
 
-    def PlanWithGradientDescend(self, point0: np.ndarray, point1: np.ndarray, num_free_points: int = 10, show_process: bool = False, process_steps: int = 5, clearance: float = 0.001):
+    def PlanWithGradientDescend(self, point0: np.ndarray, point1: np.ndarray, num_free_points: int = 10, show_process: bool = False, process_steps: int = 5, clearance: float = 0.01):
+        if self.m_field.IsCellInCollision(*point0):
+            logger.error(f"Start point {point0} is in collision!")
+            return False, np.array([point0, point1])
+        elif self.m_field.IsCellInCollision(*point1):
+            logger.error(f"End point {point1} is in collision!")
+            return False, np.array([point0, point1])
         self.m_field.m_clearance = math.ceil(
             clearance / self.m_field.m_resolution)
         path = np.array([(1 - s) * point0 + s * point1 for s in np.linspace(0.0,
@@ -45,16 +52,16 @@ class Planner:
                 collision_free = self.CheckPointsCollisionFree(path)
                 if collision_free:
                     path = self.UniformPath(path)
+                iteration += 1
                 if show_process and iteration % process_steps == 0:
                     self.m_field.Display(
-                        path=path, title="{}th plan, uniform {}".format(iteration, collision_free), curvature=c_increments, show_obstacle=False, increments=increments)
+                        path=path, title="{}th plan, uniform {}".format(iteration, collision_free), curvature=c_increments, show_obstacle=True, increments=increments)
                 collision_free = self.CheckPointsCollisionFree(path)
                 if collision_free and it_collision_free == self.m_max_iterations:
                     it_collision_free = iteration
                     self.m_learn_rate *= 0.5
                 logger.info(
                     f"Planning, iteration {iteration}, collision free: {collision_free}, obstacle cost: {o_cost :6.5f}, smooth cost: {s_cost :6.5f}, curvature cost: {c_cost :6.5f}")
-                iteration += 1
             logger.info(
                 f"Planning finished with {iteration} iterations, collision free: {collision_free}")
         except Exception as e:
@@ -62,12 +69,20 @@ class Planner:
             collision_free = False
         return collision_free, path
 
-    def PlanWithAStar(self, point0: List[float], point1: List[float], clearance=0.001):
+    def PlanWithAStar(self, point0: List[float], point1: List[float], clearance=0.001, speed_prior: bool = False):
+        if self.m_field.IsCellInCollision(*point0):
+            logger.error(f"Start point {point0} is in collision!")
+            from IPython import embed
+            embed()
+            return False, np.array([point0, point1]), None
+        elif self.m_field.IsCellInCollision(*point1):
+            logger.error(f"End point {point1} is in collision!")
+            return False, np.array([point0, point1]), None
         self.m_field.m_clearance = math.ceil(
             clearance / self.m_field.m_resolution)
         field = self.m_field
         path, history = AStartPath(field, field.WorldToGrid(*point0),
-                                   field.WorldToGrid(*point1))
+                                   field.WorldToGrid(*point1), speed_prior=speed_prior)
         if path is not None:
             path = self.SmoothFilter(path)
             return True, path, history

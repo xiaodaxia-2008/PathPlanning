@@ -16,7 +16,7 @@ def Dist(node1, node2):
     return np.linalg.norm(np.array(node1) - np.array(node2))
 
 
-def AStartPath(field, start: Union[List[int], Tuple[int], np.ndarray], end: Union[List[int], Tuple[int], np.ndarray]) -> Union[None, np.ndarray]:
+def AStartPath(field, start: Union[List[int], Tuple[int], np.ndarray], end: Union[List[int], Tuple[int], np.ndarray], speed_prior: bool = False) -> Union[None, np.ndarray]:
     """
     field: a 2d NxM grid, from (0, 0) to (N-1, M-1)
     start: start positon, eg. (1, 1)
@@ -35,6 +35,8 @@ def AStartPath(field, start: Union[List[int], Tuple[int], np.ndarray], end: Unio
     logger.info("AStar planning...")
     while open_set and not find_path:
         _, dist_to_start, node, father_node = heapq.heappop(open_set)
+        if node in visited_set:
+            continue
         visited_set[node] = (father_node, dist_to_start)
         visited_history.append(field.GridToWorld(*node))
         if end == node:
@@ -49,13 +51,14 @@ def AStartPath(field, start: Union[List[int], Tuple[int], np.ndarray], end: Unio
                     visited_set[child_node] = (node, dist_child_node_to_start)
             else:
                 # there are 2 different heuristic methods
-                # use distance_current_node_to_end_node
-                node_wait_visit = (Dist(child_node, end),
-                                   dist_child_node_to_start, child_node, node)
-
-                # use distance_current_node_to_end_node_plus_current_node_to_start_node
-                # node_wait_visit = (Dist(child_node, end),
-                #                    dist_child_node_to_start + dist_child_node_to_start, child_node, node)
+                if speed_prior:
+                    # use distance_current_node_to_end_node
+                    node_wait_visit = (Dist(child_node, end),
+                                       dist_child_node_to_start, child_node, node)
+                else:
+                    # use distance_current_node_to_end_node_plus_current_node_to_start_node
+                    node_wait_visit = (Dist(child_node, end) + dist_child_node_to_start,
+                                    dist_child_node_to_start, child_node, node)
 
                 # if node_wait_visit is already in open_set and the new heuristic distance is longer, we shouldn't add it,
                 # but find a node in heapq is time consuming, so we don't remove it
@@ -73,18 +76,39 @@ def AStartPath(field, start: Union[List[int], Tuple[int], np.ndarray], end: Unio
         return None, None
 
 
-if __name__ == "__main__":
+def Test_AStar(random_seed=None):
     field = DistanceField(x_size=1.0, y_size=1.0, x_origin=0.0,
-                          y_origin=0.0, resolution=0.1, max_distance=0.05)
+                          y_origin=0.0, resolution=0.05, max_distance=0.1, clearance=0)
     field.AddObstacleRectangle(np.array([0.5, 0.5]), np.array(
         [0.6, 0.6]), update_nearby_grd=False)
-    path = np.array([[0.1, 0.1], [0.8, 0.8]])
+    for _ in range(2):
+        if random_seed is None:
+            i = np.random.randint(2, 1000)
+        else:
+            i = random_seed
+        np.random.seed(i)
+        if _:
+            np.random.seed(170)
+        else:
+            np.random.seed(285)
+        points = np.random.uniform(low=0.2, high=0.6, size=(2, 2))
+        while min(points[1] - points[0]) < 0.05 or max(points[1] - points[0]) > 0.5:
+            i += 1
+            np.random.seed(i)
+            points = np.random.uniform(low=0.2, high=0.6, size=(2, 2))
+        field.AddObstacleRectangle(*points, update_nearby_grd=False)
+        logger.info("Random seed {}".format(i))
+    path = np.array([[0.2, 0.2], [0.8, 0.8]])
     start = field.WorldToGrid(*path[0])
     end = field.WorldToGrid(*path[1])
 
     path_rst, history = AStartPath(field, start, end)
     if path_rst is not None:
         field.Display(path=path_rst, show_grid=True, history_data=history)
+
+
+if __name__ == "__main__":
+    Test_AStar()
 
     # plt.ion()
     # line = plt.plot([0.0], [0.0])[0]

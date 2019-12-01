@@ -12,12 +12,11 @@ from IPython import embed
 
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy import interpolate
 
 logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+                    format='%(asctime)s - %(name)s - %(lineno)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+# logger.setLevel(logging.INFO)
 CWD_DIR = os.path.dirname(__file__)
 
 
@@ -38,19 +37,16 @@ class Rectangle:
             point0 {np.ndarray[int, [2,]]} -- rectangle left down corner in grid coordinate
             point1 {np.ndarray[int, [2,]]} -- rectangle right up corner in grid coordinate
         """
-        self.m_center = (0.5 * (point0 + point1)).astype(int)
-        if np.all(point0 < self.m_center):
+        if np.all(point0 <= point1):
             self.m_corner0 = point0  # left-down corner
             self.m_corner1 = point1  # right-up corner
         else:
             self.m_corner0 = point1  # left-down corner
             self.m_corner1 = point0  # right-up corner
-        self.m_extent = np.ceil(np.abs(point1 - self.m_center)).astype(int)
-        self.m_volume: float = np.prod(self.m_extent) * \
-            np.power(2, self.m_extent.shape[0])
+        self.m_volume: float = np.prod(self.m_corner1 - self.m_corner0 + np.ones(2))
 
     def __repr__(self):
-        return "<Rectangle at 0x{:x}, center {}, extent {}>".format(id(self), self.m_center, self.m_extent)
+        return "<Rectangle at 0x{:x}, corner0 {}, corner1 {}, volume {}>".format(id(self), self.m_corner0, self.m_corner1, self.m_volume)
 
 
 class Circle:
@@ -80,7 +76,7 @@ class DistanceField:
     """
 
     def __init__(self, x_size: float = 1.0, y_size: float = 1.0, x_origin: float = 0.0,
-                 y_origin: float = 0.0, resolution: float = 0.01, max_distance: float = 0.1):
+                 y_origin: float = 0.0, resolution: float = 0.05, max_distance: float = 0.1, clearance: float = 0.01):
         self.m_x_origin: float = x_origin
         self.m_y_origin: float = y_origin
         self.m_x_size: float = x_size
@@ -90,12 +86,15 @@ class DistanceField:
         self.m_max_distance: float = max_distance
         self.m_max_distance_cells: int = math.ceil(
             self.m_max_distance / self.m_resolution)
-        self.m_x_cell_num: int = math.ceil(self.m_x_size / self.m_resolution)
-        self.m_y_cell_num: int = math.ceil(self.m_y_size / self.m_resolution)
+        self.m_x_cell_num: int = math.floor(
+            self.m_x_size / self.m_resolution + 0.0001) + 1
+        self.m_y_cell_num: int = math.floor(
+            self.m_y_size / self.m_resolution + 0.0001) + 1
         self.m_grid: List[List[Cell]] = [[Cell() for _ in range(self.m_y_cell_num)]
                                          for _ in range(self.m_x_cell_num)]
         self.m_obstacles = []
-        self.m_clearance: int = 1  # distance in grid to nereast obstacle cell
+        # distance in grid to nereast obstacle cell
+        self.m_clearance: int = math.ceil(clearance / self.m_resolution)
         self.m_neighbour_dxy = None
 
     def GetCell(self, x: float, y: float) -> Cell:
@@ -104,17 +103,20 @@ class DistanceField:
 
     def GetNearbyObstacleGradient(self, x: float, y: float) -> np.ndarray:
         collision = self.IsCellInCollision(x, y)
-        coeff = 1.0 if collision else 0.01
+        coeff = 1.0 if collision else 0.2
         return self.GetCell(x, y).m_gradient * coeff
 
     def GetObstacleCenterGradient(self, x: float, y: float) -> np.ndarray:
         grd = np.zeros((2))
-        tc = self.WorldToGrid(x, y)
+        pos = np.array([x, y])
         for obs in self.m_obstacles:
-            grd += self._Compute2PointsGradient(obs.m_center,
-                                                tc) * obs.m_volume
+            if isinstance(obs, Rectangle):
+                center = 0.5*(self.GridToWorld(*obs.m_corner0) + self.GridToWorld(*obs.m_corner1))
+            else:
+                center = obs.m_center
+            grd += self.Compute2PointsGradient(center, pos) * obs.m_volume
         collision = self.IsCellInCollision(x, y)
-        coeff = 1.0 if collision else 0.01
+        coeff = 1.0 if collision else 0.2
         return grd * coeff
 
     def RandomNoCollisionCellInRange(self, center: np.ndarray, radius: float) -> Union[None, np.ndarray]:
@@ -147,9 +149,9 @@ class DistanceField:
 
     def GetGridBound(self):
         # x0, x1, y0, y1
-        return self.m_x_origin - self.m_resolution_half, self.m_x_origin + self.m_x_size + self.m_resolution_half, \
+        return self.m_x_origin - self.m_resolution_half, self.m_x_origin + self.m_x_cell_num * self.m_resolution - self.m_resolution_half, \
             self.m_y_origin - self.m_resolution_half, self.m_y_origin + \
-            self.m_resolution_half + self.m_y_size
+            self.m_resolution * self.m_y_cell_num - self.m_resolution_half
 
     def IsCellInCollision(self, x: float, y: float):
         return self._IsCellInCollision(*self.WorldToGrid(x, y))
@@ -159,7 +161,7 @@ class DistanceField:
         tg = np.array([x_idx, y_idx])
         for obs in self.m_obstacles:
             if isinstance(obs, Rectangle):
-                if np.all(np.abs(tg - obs.m_center) <= obs.m_extent + self.m_clearance):
+                if np.all(obs.m_corner0 - self.m_clearance <= tg) and np.all(tg <= obs.m_corner1 + self.m_clearance):
                     return True
             elif isinstance(obs, Circle):
                 if np.linalg.norm(tg - obs.m_center) <= self.m_clearance + obs.m_radius:
@@ -170,7 +172,7 @@ class DistanceField:
         return 0 <= x_idx < self.m_x_cell_num and 0 <= y_idx < self.m_y_cell_num
 
     def WorldToGrid(self, x: float, y: float) -> np.ndarray:
-        x_idx, y_idx = math.ceil((x - self.m_x_origin + self.m_resolution_half) / self.m_resolution), math.ceil(
+        x_idx, y_idx = math.floor((x - self.m_x_origin + self.m_resolution_half) / self.m_resolution), math.floor(
             (y - self.m_y_origin + self.m_resolution_half) / self.m_resolution)
         if self._IsCellValid(x_idx, y_idx):
             return np.array([x_idx, y_idx])
@@ -235,42 +237,28 @@ class DistanceField:
         cell_y1 = y + self.m_resolution_half
         return np.array([[cell_x0, cell_x1, cell_x1, cell_x0], [cell_y0, cell_y0, cell_y1, cell_y1]])
 
-    def _Compute2PointsGradient(self, oc: np.ndarray, tc: np.ndarray) -> np.ndarray:
-        grd = tc - oc
+    def _Compute2PointsGradient(self, gpoint0: np.ndarray, gpoint1: np.ndarray) -> np.ndarray:
+        return self.Compute2PointsGradient(self.GridToWorld(*gpoint0), self.GridToWorld(*gpoint1))
+
+    def Compute2PointsGradient(self, point0: np.ndarray, point1: np.ndarray) -> np.ndarray:
+        grd = point1 - point0
         grd_norm = np.linalg.norm(grd)
         dist_sq = np.square(grd_norm)
-        max_dist_cells_sq = self.m_max_distance_cells * self.m_max_distance_cells
-        if grd_norm > 0 and dist_sq < max_dist_cells_sq:
-            return (1 - dist_sq / max_dist_cells_sq) / grd_norm * grd
+        max_dist_sq = self.m_max_distance * self.m_max_distance
+        if grd_norm > 0 and dist_sq < max_dist_sq:
+            return (1 - dist_sq / max_dist_sq) / grd_norm * grd
         else:
-            return np.zeros(oc.shape[0])
-
-    def Compute2PointsGradient(self, obs: np.ndarray, tar: np.ndarray) -> np.ndarray:
-        oc = self.WorldToGrid(*obs)
-        tc = self.WorldToGrid(*tar)
-        return self._Compute2PointsGradient(oc, tc)
+            return np.zeros(point0.shape[0])
 
     def AddObstacleRectangle(self, point0: np.ndarray, point1: np.ndarray, update_nearby_grd=False):
-        self.m_obstacles.append(Rectangle(self.WorldToGrid(
-            *point0), self.WorldToGrid(*point1)))
-        obs = self.m_obstacles[-1]
+        obs = Rectangle(self.WorldToGrid(*point0), self.WorldToGrid(*point1))
+        self.m_obstacles.append(obs)
         self.m_max_distance_cells = max(
-            self.m_max_distance_cells, math.ceil(max(obs.m_extent) * 2))
+            self.m_max_distance_cells, math.ceil(max(obs.m_corner1 - obs.m_corner0) + self.m_clearance))
         self.m_max_distance = self.m_max_distance_cells * self.m_resolution
-        x1, y1 = point1
-        coords = []
-        x = point0[0]
-        while True:
-            y = point0[1]
-            while True:
-                coords.append([x, y])
-                y += self.m_resolution
-                if y > y1 + self.m_resolution:
-                    break
-            x += self.m_resolution
-            if x > x1 + self.m_resolution:
-                break
-        return self.AddObstacles(coords, update_nearby_grd)
+        for x in np.arange(point0[0], point1[0], self.m_resolution):
+            for y in np.arange(point0[1], point1[1], self.m_resolution):
+                self._AddObstacle(self.WorldToGrid(x, y), update_nearby_grd)
 
     def AddObstacles(self, coords_in_world: np.ndarray, update_nearby_grd: bool = False):
         for x, y in coords_in_world:
@@ -333,12 +321,12 @@ class DistanceField:
         if show_grid or show_gradient or show_obstacle_verbose:
             for x_idx in range(self.m_x_cell_num):
                 if show_grid:
-                    plt.plot([x_idx * self.m_resolution + self.m_resolution_half + self.m_x_origin] * 2,
-                             [self.m_y_origin - self.m_resolution_half, self.m_y_origin + self.m_y_size + self.m_resolution_half], "r", lw=1)
+                    plt.plot([x_idx * self.m_resolution - self.m_resolution_half + self.m_x_origin] * 2,
+                             [y0, y1], "r", lw=1)
                 for y_idx in range(self.m_y_cell_num):
                     if show_grid:
-                        plt.plot([self.m_x_origin - self.m_resolution_half, self.m_x_origin + self.m_x_size + self.m_resolution_half], [
-                            y_idx * self.m_resolution + self.m_resolution_half + self.m_y_origin] * 2, "r", lw=1)
+                        plt.plot([x0, x1], [y_idx * self.m_resolution -
+                                            self.m_resolution_half + self.m_y_origin] * 2, "r", lw=1)
                     cell = self.m_grid[x_idx][y_idx]
                     cell_bound_points = self._CellBoundPoints(x_idx, y_idx)
                     if show_obstacle_verbose and cell.m_obstacle:
@@ -353,35 +341,37 @@ class DistanceField:
                         if gnorm > 0:
                             plt.arrow(*cell_coord, *(self.m_resolution_half * cell.m_gradient / gnorm),
                                       length_includes_head=True, color=(0, 1, 0))
+        plt.axis("scaled")
+        plt.axis("off")
         if path is not None:
             path: np.ndarray = np.array(path)
-            plt.plot(*path.T, "g*-", ms=3, lw=1)
             plt.plot(*path[[0, -1]].T, "bo--", ms=4)
-            # plt.plot(path[0, 0], path[0, 1], "bo", ms=4)
-            # plt.plot(path[-1, 0], path[-1, 1], "b^", ms=4)
+            plt.plot(*path.T, "g*-", ms=3, lw=2)
             if curvature is not None:
                 plt.quiver(path[1:-1, 0], path[1:-1, 1],
                            curvature[:, 0], curvature[:, 1], color=(0, 0, 0))
             if increments is not None:
                 plt.quiver(path[1:-1, 0], path[1:-1, 1],
                            increments[:, 0], increments[:, 1], color=(0, 0, 0))
-        plt.axis("scaled")
-        plt.axis("off")
+        os.makedirs(f"{CWD_DIR}/result_pics/", exist_ok=True)
+        plt.savefig(f"{CWD_DIR}/result_pics/PlanningResult.png")
         if history_data is not None:
             plt.ion()
-            line = plt.plot(history_data[0].T, "y^--")[0]
+            line = plt.plot(history_data[0].T, "y^", ms=4)[0]
             files = []
             os.makedirs(f"{CWD_DIR}/imgs", exist_ok=True)
+            step = math.ceil(history_data.shape[0] / 50)
+            # step = 1
             for i in range(history_data.shape[0]+1):
                 line.set_data(history_data[:i].T)
-                plt.pause(0.01)
-                if i % 1 == 0:
+                plt.pause(0.001)
+                if i % step == 0:
                     files.append(f"{CWD_DIR}/imgs/{i}.png")
                     plt.savefig(files[-1])
             # input("any key to continue...")
             from .GenerateGif import CreateGif
             import shutil
-            CreateGif(files, f"{CWD_DIR}/AStar.gif", duration=0.1)
+            CreateGif(files, f"{CWD_DIR}/result_pics/AStar.gif", duration=0.1)
             shutil.rmtree(f"{CWD_DIR}/imgs")
         else:
             plt.show()
@@ -389,17 +379,19 @@ class DistanceField:
 
 def Test_DistanceField():
     # Test_DistanceField
-    field = DistanceField(x_size=1.0, y_size=1.0, x_origin=0.0,
-                          y_origin=0.0, resolution=0.01, max_distance=0.05)
-    field.AddObstacles([[0.4, 0.4], [0.39, 0.4], [0.38, 0.4], [0.37, 0.4]])
+    field = DistanceField(x_size=1.2, y_size=1.2, x_origin=0.0,
+                          y_origin=0.0, resolution=0.2, max_distance=0.05)
+    # field.AddObstacles([[0.4, 0.4], [0.39, 0.4], [0.38, 0.4], [0.37, 0.4]])
     field.AddObstacleRectangle([0.5, 0.5], [0.7, 0.6])
-    for cgrid in field.NeighbourCells_(np.array([0.4, 0.4])):
-        field._AddObstacle(cgrid)
+    # for cgrid in field.NeighbourCells_(np.array([0.4, 0.4])):
+    #     field._AddObstacle(cgrid)
     path = np.array([[0.3, 0.3],
                      [0.35, 0.23],
                      [0.7, 0.8]])
     # print(field.NeighbourCells(np.array([0.5, 0.5])))
-    field.Display(path=path, show_obstacle=True, show_obstacle_verbose=True)
+    field.Display(path=path, show_obstacle=True,
+                  show_obstacle_verbose=True, show_grid=True)
+    embed()
 
 
 if __name__ == "__main__":
