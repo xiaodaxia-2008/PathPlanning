@@ -6,11 +6,11 @@ from IPython import embed
 logger = logging.getLogger(__name__)
 
 logging.basicConfig(level=logging.ERROR)
-             
 
-def Planner_Example(display_result=False, update_nearby_grd=False, random_seed=None, a_star_speed_prior=False):
+
+def Planner_Example(pos_start=np.array([0.1, 0.1]), pos_target=np.array([0.94, 0.94]), method="AStar",
+                    display_result=False, random_seed=None, update_nearby_grd=False, a_star_speed_prior=False):
     planner = Planner(learn_rate=0.01, resolution=0.05, max_distance=0.3)
-
     # Adding obstacles
     field = planner.m_field
     field.m_clearance = 1
@@ -38,17 +38,25 @@ def Planner_Example(display_result=False, update_nearby_grd=False, random_seed=N
         planner.AddObstacleRectangle(*points, update_nearby_grd)
         logger.info("Random seed {}".format(i))
 
-    pos_start = np.array([0.1, 0.1])
-    pos_target = np.array([0.94, 0.94])
+    # pos_start = np.array([0.1, 0.1])
+    # pos_target = np.array([0.94, 0.94])
     history_data = None
-    success, path = planner.PlanWithGradientDescend(pos_start, pos_target,
-                                                           num_free_points=30, show_process=True, process_steps=1000, clearance=0.01)
-    # success, path = planner.PlanWithRRT(
-    #     pos_start, pos_target, show_process=True, process_steps=1)
-    # success, path, history_data = planner.PlanWithAStar(
-    #     pos_start, pos_target, clearance=0.001, speed_prior=a_star_speed_prior)
+    success = False
+    if method == "GradientDescend":
+        success, path = planner.PlanWithGradientDescend(pos_start, pos_target,
+                                                        num_free_points=30, show_process=True, process_steps=1000, clearance=0.01)
+    elif method == "RRT":
+        success, path, history_data = planner.PlanWithRRT(
+            pos_start, pos_target, step_size=0.3, show_process=True, process_steps=100, max_iterations=1000)
+    elif method == "AStar":
+        success, path, history_data = planner.PlanWithAStar(
+            pos_start, pos_target, clearance=0.001, speed_prior=a_star_speed_prior)
+    else:
+        logger.error(
+            f'method should be one of ["AStar", "RRT", "GradientDescend"], required is {method}')
+        return False
     if display_result:
-        planner.m_field.Display(path=path, title="Gradient Descending Planning Result",
+        planner.m_field.Display(path=path, title=f"{method} Planning Result",
                                 show_obstacle_verbose=True, history_data=history_data, show_grid=True)
     return success
 

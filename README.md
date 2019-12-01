@@ -7,3 +7,10 @@ Some algorithms about path planning, eg. A*, RRT, gradient descending
 ## Gradient Descending Planner
 ![GradientDescending Example](./src/result_gif/GradientDescend.png)
 
+## RRT
+
+**RRT Planning**
+![RRT Example](./src/result_gif/RRTGenerate.gif)
+
+**RRT Shortcuting**
+![RRTShort Example](./src/result_gif/RRTShortcut.gif)

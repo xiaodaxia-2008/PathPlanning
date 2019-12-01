@@ -89,44 +89,44 @@ class Planner:
         else:
             return False, None, None
 
-    def PlanWithRRT(self, point0, point1, step_size=0.2, show_process=False, process_steps=1, clearance=0.001):
+    def PlanWithRRT(self, point0: List[float], point1: List[float], step_size=0.2, max_iterations=1000, show_process=False, process_steps=1, clearance=0.001):
         # TODO: need to be improved
-        self.m_field.m_clearance = math.ceil(
+        field = self.m_field
+        field.m_clearance = math.ceil(
             clearance / self.m_field.m_resolution)
-        path = [point0, point1]
-        iteration = 0
-        collision_free = False
-        path_copy = path.copy()
-        while not collision_free:
-            collision_free = True
-            i = 0
-            while i < len(path) - 1:
-                seg_no_colli = self.CheckLinearPathCollisionFree(
-                    path[i], path[i+1])
-                collision_free &= seg_no_colli
-                if not seg_no_colli:
-                    point = self.m_field.RandomNoCollisionCellInRange(
-                        path[i], step_size)
-                    path_copy.insert(i+1, point)
-                    idx = i+1 if i+1 < len(path_copy) else len(path_copy) - 1
-                    # short cut on path
-                    for j in range(i+1):
-                        if self.CheckLinearPathCollisionFree(path_copy[j], path_copy[idx]):
-                            for k in range(j+1, idx):
-                                path_copy.pop(k)
-                            break
+        path = [point0]
+        iteration = 1
+        find_path = False
+        while not find_path and iteration <= max_iterations:
+            cur_point = path[-1]
+            if np.linalg.norm(point1 - cur_point) <= step_size:
+                if self.CheckLinearPathCollisionFree(cur_point, point1):
+                    path.append(point1)
+                    find_path = True
                     break
-                i += 1
-            path = path_copy.copy()
+            gen_next_point = False
+            while not gen_next_point:
+                next_point = field.RandomNoCollisionCellInRange(
+                    cur_point, step_size)
+                if next_point is None:
+                    logger.error(f"Failed to get RandomNoCollisionCellInRange")
+                    return False, None
+                gen_next_point = self.CheckLinearPathCollisionFree(
+                    cur_point, next_point)
+            path.append(next_point)
+
             if show_process and iteration % process_steps == 0:
-                self.m_field.Display(path=path, title="RRT it {}, collision free {}".format(
-                    iteration, collision_free))
-            if collision_free:
-                break
+                field.Display(path=path, title="RRT it {}".format(
+                    iteration))
             iteration += 1
         logger.info(
-            f"Finish planning with RRT with {iteration} iterations, collision free {collision_free}")
-        return collision_free, np.array(path)
+            f"Finish planning with RRT with {iteration} iterations, find path {find_path}")
+        if show_process:
+            field.Display(path=path, title="Final RRT path without shortcut")
+        # Short cut path
+        history = path
+        path = self.ShortCut(path)
+        return find_path, np.array(path), np.array(history)
 
     def CheckLinearPathCollisionFree(self, start, end, num=50):
         for s in np.linspace(0, 1, num=num, endpoint=True):
@@ -220,6 +220,47 @@ class Planner:
                 neighbour[kernal_size+1:] = path[i+1]
             path_smooth[i] = neighbour.T @ kernal
         return path_smooth
+
+    def ShortCut(self, path: np.ndarray) -> np.ndarray:
+        import random
+        history = []
+        iteration = 0
+        idx_removed = set()
+        idx_visited = set()
+        idx_right = 0
+        idx_max = len(path) - 1
+        max_iterations = idx_max
+        max_points_removed = len(path) - 2
+        while iteration < max_iterations and len(idx_removed) < max_points_removed:
+            idx_left = random.randint(idx_right, idx_max)
+            logger.info(f"Iteration {iteration}")
+            if idx_left + 2 <= idx_max:
+                idx_right = random.randint(idx_left + 2, idx_max)
+            else:
+                continue
+            logger.info(f"idx_left {idx_left}, idx_right {idx_right}, path length {len(path) - len(idx_removed)}")
+            if (idx_left, idx_right) not in idx_visited:
+                idx_visited.add((idx_left, idx_right))
+            else:
+                continue
+            if self.CheckLinearPathCollisionFree(path[idx_left], path[idx_right],
+                                                 num=np.linalg.norm(path[idx_right] - path[idx_left]) // self.m_field.m_resolution_half):
+                for i in range(idx_left+1, idx_right):
+                    idx_removed.add(i)
+            logger.info(f"Iteration {iteration}, removed points {len(idx_removed)} /{max_points_removed}")
+            if idx_right > idx_max - 2:
+                path = np.array([path[i] for i in range(idx_max+1) if i not in idx_removed])
+                idx_right = 0
+                idx_removed = set()
+                idx_visited = set()
+                idx_max = len(path) - 1
+                max_points_removed = len(path) - 2
+                history.append(path)
+            iteration += 1
+        path = np.array([path[i] for i in range(idx_max+1) if i not in idx_removed])
+        self.m_field.Display(path=path, title="RRT Short cut", history_data=history)
+        return path
+        
 
 
 def Test_Planner(display_result=False, update_nearby_grd=False, random_seed=None):

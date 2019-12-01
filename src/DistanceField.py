@@ -6,6 +6,7 @@ import logging
 import math
 import random
 import time
+import datetime
 from typing import List, Union
 
 from IPython import embed
@@ -122,13 +123,13 @@ class DistanceField:
     def RandomNoCollisionCellInRange(self, center: np.ndarray, radius: float) -> Union[None, np.ndarray]:
         gcenter = self.WorldToGrid(*center)
         gradius = math.ceil(radius / self.m_resolution)
-        ncs = self._NeighbourCircleCells(gcenter, gradius)
+        ncs = self._NeighbourCircleCells_(gcenter, gradius)
         idx_set = set(range(ncs.shape[0]))
         while True:
             idx = random.sample(idx_set, 1)[0]
             idx_set.remove(idx)
-            if not self._IsCellInCollision(*ncs[idx]):
-                return ncs[idx]
+            if not self._IsCellInCollision(*ncs[idx]) and self._IsCellValid(*ncs[idx]):
+                return self.GridToWorld(*ncs[idx])
             if not idx_set:
                 return None
 
@@ -218,7 +219,7 @@ class DistanceField:
                     i += 1
         return self.m_neighbour_dxy + grid_idx
 
-    def _NeighbourCircleCells(self, gcenter: np.ndarray, gradius: int) -> np.ndarray:
+    def _NeighbourCircleCells_(self, gcenter: np.ndarray, gradius: int) -> np.ndarray:
         max_dist_sq = gradius * gradius
         gresult = []
         for dx in range(-gradius, gradius+1):
@@ -357,21 +358,24 @@ class DistanceField:
         plt.savefig(f"{CWD_DIR}/result_pics/PlanningResult.png")
         if history_data is not None:
             plt.ion()
-            line = plt.plot(history_data[0].T, "y^", ms=4)[0]
+            line = plt.plot(0, 0, "y^--", ms=4, lw=1)[0]
             files = []
             os.makedirs(f"{CWD_DIR}/imgs", exist_ok=True)
-            step = math.ceil(history_data.shape[0] / 50)
+            step = math.ceil(len(history_data) / 50)
             # step = 1
             for i in range(history_data.shape[0]+1):
+            # for i in range(len(history_data)):
                 line.set_data(history_data[:i].T)
-                plt.pause(0.001)
+                # line.set_data(history_data[i].T)
+                plt.pause(0.01)
                 if i % step == 0:
                     files.append(f"{CWD_DIR}/imgs/{i}.png")
                     plt.savefig(files[-1])
             # input("any key to continue...")
             from .GenerateGif import CreateGif
             import shutil
-            CreateGif(files, f"{CWD_DIR}/result_pics/AStar.gif", duration=0.1)
+            
+            CreateGif(files, f"{CWD_DIR}/result_pics/PlanResult{datetime.datetime.now().strftime('%Y_%m_%d__%H_%M_%S')}.gif", duration=0.1)
             shutil.rmtree(f"{CWD_DIR}/imgs")
         else:
             plt.show()
