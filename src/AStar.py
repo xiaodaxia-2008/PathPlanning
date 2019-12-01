@@ -32,6 +32,7 @@ def AStartPath(field, start: Union[List[int], Tuple[int], np.ndarray], end: Unio
     visited_history = []
     heapq.heapify(open_set)
     find_path = False
+    logger.info("AStar planning...")
     while open_set and not find_path:
         _, dist_to_start, node, father_node = heapq.heappop(open_set)
         visited_set[node] = (father_node, dist_to_start)
@@ -60,7 +61,7 @@ def AStartPath(field, start: Union[List[int], Tuple[int], np.ndarray], end: Unio
                 # but find a node in heapq is time consuming, so we don't remove it
                 # the heapq will contain same nodes but different distances
                 heapq.heappush(open_set, node_wait_visit)
-
+    logger.info(f"Finish AStar, find path {find_path}")
     if find_path:
         path = []
         node = end

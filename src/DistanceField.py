@@ -1,6 +1,7 @@
 """
 By Zhen Xiao, Nov 27, 2019
 """
+import os
 import logging
 import math
 import random
@@ -17,6 +18,7 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+CWD_DIR = os.path.dirname(__file__)
 
 
 class Cell:
@@ -368,10 +370,19 @@ class DistanceField:
         if history_data is not None:
             plt.ion()
             line = plt.plot(history_data[0].T, "y^--")[0]
+            files = []
+            os.makedirs(f"{CWD_DIR}/imgs", exist_ok=True)
             for i in range(history_data.shape[0]+1):
                 line.set_data(history_data[:i].T)
                 plt.pause(0.01)
-            input("any key to continue...")
+                if i % 1 == 0:
+                    files.append(f"{CWD_DIR}/imgs/{i}.png")
+                    plt.savefig(files[-1])
+            # input("any key to continue...")
+            from .GenerateGif import CreateGif
+            import shutil
+            CreateGif(files, f"{CWD_DIR}/AStar.gif", duration=0.1)
+            shutil.rmtree(f"{CWD_DIR}/imgs")
         else:
             plt.show()
 

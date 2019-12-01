@@ -44,7 +44,7 @@ def Planner_Example(display_result=False, update_nearby_grd=False, random_seed=N
     success, path, history_data = planner.PlanWithAStar(pos_start, pos_target,
                                                         clearance=planner.m_field.m_resolution*1)
     if display_result:
-        planner.m_field.Display(path=path, title="Final opt result, no collision {}".format(success),
+        planner.m_field.Display(path=path, title="A* Planning".format(success),
                                 show_obstacle_verbose=True, history_data=history_data)
     return success
 
