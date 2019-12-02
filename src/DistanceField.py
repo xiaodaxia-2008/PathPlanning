@@ -44,7 +44,8 @@ class Rectangle:
         else:
             self.m_corner0 = point1  # left-down corner
             self.m_corner1 = point0  # right-up corner
-        self.m_volume: float = np.prod(self.m_corner1 - self.m_corner0 + np.ones(2))
+        self.m_volume: float = np.prod(
+            self.m_corner1 - self.m_corner0 + np.ones(2))
 
     def __repr__(self):
         return "<Rectangle at 0x{:x}, corner0 {}, corner1 {}, volume {}>".format(id(self), self.m_corner0, self.m_corner1, self.m_volume)
@@ -268,7 +269,7 @@ class DistanceField:
         obs = Circle(gcenter, gradius)
         self.m_obstacles.append(obs)
         self.m_max_distance_cells = max(
-            self.m_max_distance_cells, obs.m_center + self.m_clearance)
+            self.m_max_distance_cells, obs.m_radius + self.m_clearance)
         self.m_max_distance = self.m_max_distance_cells * self.m_resolution
         for gcoord in self._NeighbourCircleCells_(gcenter, gradius):
             self._AddObstacle(gcoord, update_nearby_grd)
@@ -334,7 +335,7 @@ class DistanceField:
                         corner0, *(corner2 - corner0), fill=True, color="r"))
                 elif isinstance(obs, Circle):
                     ax.add_artist(plt.Circle(self.GridToWorld(
-                        obs.m_center), radius=self.m_resolution * obs.m_radius, color="r"))
+                        *obs.m_center), radius=self.m_resolution * obs.m_radius, color="r"))
 
         if show_grid or show_gradient or show_obstacle_verbose:
             for x_idx in range(self.m_x_cell_num):
@@ -397,7 +398,8 @@ class DistanceField:
             from .GenerateGif import CreateGif
             import shutil
 
-            CreateGif(files, f"{CWD_DIR}/result_pics/PlanResult{datetime.datetime.now().strftime('%Y_%m_%d__%H_%M_%S')}.gif", duration=0.1)
+            CreateGif(
+                files, f"{CWD_DIR}/result_pics/PlanResult{datetime.datetime.now().strftime('%Y_%m_%d__%H_%M_%S')}.gif", duration=0.1)
             shutil.rmtree(f"{CWD_DIR}/imgs")
         else:
             plt.show()

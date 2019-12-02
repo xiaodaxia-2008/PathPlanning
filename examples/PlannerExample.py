@@ -22,6 +22,8 @@ def Planner_Example(pos_start=np.array([0.1, 0.1]), pos_target=np.array([0.94, 0
     # field.AddObstacleRectangle(np.array([0.5, 0.5]), np.array(
     #     [0.6, 0.6]), update_nearby_grd=False)
 
+    field.AddObstacleCircle(np.array([0.4, 0.4]), 0.2)
+
     # Adding random obstacles
     num_obs = 1
     if random_seed is not None:
