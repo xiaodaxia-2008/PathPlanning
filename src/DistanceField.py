@@ -112,7 +112,8 @@ class DistanceField:
         pos = np.array([x, y])
         for obs in self.m_obstacles:
             if isinstance(obs, Rectangle):
-                center = 0.5*(self.GridToWorld(*obs.m_corner0) + self.GridToWorld(*obs.m_corner1))
+                center = 0.5*(self.GridToWorld(*obs.m_corner0) +
+                              self.GridToWorld(*obs.m_corner1))
             else:
                 center = obs.m_center
             grd += self.Compute2PointsGradient(center, pos) * obs.m_volume
@@ -261,6 +262,17 @@ class DistanceField:
             for y in np.arange(point0[1], point1[1], self.m_resolution):
                 self._AddObstacle(self.WorldToGrid(x, y), update_nearby_grd)
 
+    def AddObstacleCircle(self, center: np.ndarray, radius: float, update_nearby_grd=False):
+        gcenter = self.WorldToGrid(*center)
+        gradius = math.ceil(radius / self.m_resolution)
+        obs = Circle(gcenter, gradius)
+        self.m_obstacles.append(obs)
+        self.m_max_distance_cells = max(
+            self.m_max_distance_cells, obs.m_center + self.m_clearance)
+        self.m_max_distance = self.m_max_distance_cells * self.m_resolution
+        for gcoord in self._NeighbourCircleCells_(gcenter, gradius):
+            self._AddObstacle(gcoord, update_nearby_grd)
+
     def AddObstacles(self, coords_in_world: np.ndarray, update_nearby_grd: bool = False):
         for x, y in coords_in_world:
             og = self.WorldToGrid(x, y)
@@ -309,15 +321,20 @@ class DistanceField:
         plt.plot([x0, x1], [y1, y1], "r", lw=2)
         plt.plot([x0, x0], [y0, y1], "r", lw=2)
         plt.plot([x1, x1], [y0, y1], "r", lw=2)
+        ax = plt.gca()
         if show_obstacle:
             for obs in self.m_obstacles:
-                if not isinstance(obs, Rectangle):
-                    continue
-                corner0 = self._CellBoundPoints(*obs.m_corner0)[:, 0]
-                corner2 = self._CellBoundPoints(*obs.m_corner1)[:, 2]
-                corner1 = np.array([corner2[0], corner0[1]])
-                corner3 = np.array([corner0[0], corner2[1]])
-                plt.fill(*np.c_[corner0, corner1, corner2, corner3], "r")
+                if isinstance(obs, Rectangle):
+                    corner0 = self._CellBoundPoints(*obs.m_corner0)[:, 0]
+                    corner2 = self._CellBoundPoints(*obs.m_corner1)[:, 2]
+                    # corner1 = np.array([corner2[0], corner0[1]])
+                    # corner3 = np.array([corner0[0], corner2[1]])
+                    # plt.fill(*np.c_[corner0, corner1, corner2, corner3], "r")
+                    ax.add_artist(plt.Rectangle(
+                        corner0, *(corner2 - corner0), fill=True, color="r"))
+                elif isinstance(obs, Circle):
+                    ax.add_artist(plt.Circle(self.GridToWorld(
+                        obs.m_center), radius=self.m_resolution * obs.m_radius, color="r"))
 
         if show_grid or show_gradient or show_obstacle_verbose:
             for x_idx in range(self.m_x_cell_num):
@@ -379,7 +396,7 @@ class DistanceField:
             # input("any key to continue...")
             from .GenerateGif import CreateGif
             import shutil
-            
+
             CreateGif(files, f"{CWD_DIR}/result_pics/PlanResult{datetime.datetime.now().strftime('%Y_%m_%d__%H_%M_%S')}.gif", duration=0.1)
             shutil.rmtree(f"{CWD_DIR}/imgs")
         else:
