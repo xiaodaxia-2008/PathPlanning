@@ -8,6 +8,7 @@ import random
 import time
 import datetime
 from typing import List, Union
+from collections.abc import Iterable
 
 from IPython import embed
 
@@ -19,6 +20,12 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger(__name__)
 # logger.setLevel(logging.INFO)
 CWD_DIR = os.path.dirname(__file__)
+WorldCoord = Union[np.ndarray, List[int]]
+GridCoord = Union[np.ndarray, List[float]]
+VecInt = Union[np.ndarray, List[int]]
+VecFloat = Union[np.ndarray, List[float]]
+VecInt2d = Union[np.ndarray, List[List[int]]]
+VecFloat2d = Union[np.ndarray, List[List[float]]]
 
 
 class Cell:
@@ -31,7 +38,7 @@ class Cell:
 
 
 class Rectangle:
-    def __init__(self, point0: np.ndarray, point1: np.ndarray):
+    def __init__(self, point0: GridCoord, point1: GridCoord):
         """Grid Rectangle 
 
         Arguments:
@@ -52,15 +59,15 @@ class Rectangle:
 
 
 class Circle:
-    def __init__(self, center: np.ndarray, radius: int):
+    def __init__(self, center: GridCoord, radius: int):
         """Grid Circle
 
         Arguments:
             center {np.ndarray[int, [2,]]} -- radius center in grid coordinate
             radius {int} -- circle radius in grid coordinate
         """
-        self.m_center = center
-        self.m_radius = radius
+        self.m_center: GridCoord = center
+        self.m_radius: int = radius
         self.m_volume: float = np.pi * self.m_radius * self.m_radius
         # if sphere
         if len(center) == 3:
@@ -75,153 +82,154 @@ class DistanceField:
     NOTE: 
     1) functions end with _ , return the grid coordinate, otherwise return world coordinate
     2) functions start with _ , require the grid coordinate, otherwise require world coordinate
+    3) variables end with _, is grid number, otherwise is real number
     """
 
-    def __init__(self, x_size: float = 1.0, y_size: float = 1.0, x_origin: float = 0.0,
-                 y_origin: float = 0.0, resolution: float = 0.05, max_distance: float = 0.1, clearance: float = 0.01):
-        self.m_x_origin: float = x_origin
-        self.m_y_origin: float = y_origin
-        self.m_x_size: float = x_size
-        self.m_y_size: float = y_size
+    def __init__(self, size: VecFloat = np.ones(2), origin: WorldCoord = np.zeros(2), resolution: float = 0.05, max_distance: float = 0.1, clearance: float = 0.01):
+        self.m_origin: WorldCoord = origin
+        self.m_size: VecInt = size
         self.m_resolution: float = resolution
         self.m_resolution_half: float = 0.5 * self.m_resolution
         self.m_max_distance: float = max_distance
-        self.m_max_distance_cells: int = math.ceil(
+        self.m_max_distance_: int = math.ceil(
             self.m_max_distance / self.m_resolution)
-        self.m_x_cell_num: int = math.floor(
-            self.m_x_size / self.m_resolution + 0.0001) + 1
-        self.m_y_cell_num: int = math.floor(
-            self.m_y_size / self.m_resolution + 0.0001) + 1
-        self.m_grid: List[List[Cell]] = [[Cell() for _ in range(self.m_y_cell_num)]
-                                         for _ in range(self.m_x_cell_num)]
+        self.m_size_ = (self.m_size / self.m_resolution +
+                        0.00001).astype(int) + 1
+        # self.m_grid: List[List[Cell]] = [[Cell() for _ in range(self.m_y_cell_num)]
+        #                                  for _ in range(self.m_x_cell_num)]
+        self.m_grid = np.array([Cell() for _ in range(np.prod(self.m_size_))])
         self.m_obstacles = []
         # distance in grid to nereast obstacle cell
-        self.m_clearance: int = math.ceil(clearance / self.m_resolution)
-        self.m_neighbour_dxy = None
+        self.m_clearance: float = clearance
+        self.m_clearance_: int = math.ceil(
+            self.m_clearance / self.m_resolution)
+        self.m_neighbour_delta_coord_: VecInt2d = None
+        self.m_dim: int = len(self.m_size_)
+        # only for 2d
+        self.m_vector_idx: VecInt = np.array([self.m_size_[0], 1])
 
-    def GetCell(self, x: float, y: float) -> Cell:
-        x_idx, y_idx = self.WorldToGrid(x, y)
-        return self.m_grid[x_idx][y_idx]
+    def GetCell(self, coord: WorldCoord) -> Cell:
+        return self._GetCell(self.WorldToGrid(coord))
 
-    def GetNearbyObstacleGradient(self, x: float, y: float) -> np.ndarray:
-        collision = self.IsCellInCollision(x, y)
-        coeff = 1.0 if collision else 0.2
-        return self.GetCell(x, y).m_gradient * coeff
+    def _GetCell(self, gcoord: GridCoord) -> Cell:
+        return self.m_grid[gcoord @ self.m_vector_idx]
 
-    def GetObstacleCenterGradient(self, x: float, y: float) -> np.ndarray:
+    def GetNearbyObstacleGradient(self, coord: WorldCoord) -> VecFloat:
+        collision = self.IsCellInCollision(coord)
+        coeff = 1.0 if collision else 0.1
+        return self.GetCell(coord).m_gradient * coeff
+
+    def GetObstacleCenterGradient(self, coord: WorldCoord) -> VecFloat:
         grd = np.zeros((2))
-        pos = np.array([x, y])
         for obs in self.m_obstacles:
             if isinstance(obs, Rectangle):
-                center = 0.5*(self.GridToWorld(*obs.m_corner0) +
-                              self.GridToWorld(*obs.m_corner1))
+                center = 0.5*(self.GridToWorld(obs.m_corner0) +
+                              self.GridToWorld(obs.m_corner1))
             else:
                 center = obs.m_center
-            grd += self.Compute2PointsGradient(center, pos) * obs.m_volume
-        collision = self.IsCellInCollision(x, y)
-        coeff = 1.0 if collision else 0.2
+            grd += self.Compute2PointsGradient(center, coord) * obs.m_volume
+        collision = self.IsCellInCollision(coord)
+        coeff = 1.0 if collision else 0.1
         return grd * coeff
 
-    def RandomNoCollisionCellInRange(self, center: np.ndarray, radius: float) -> Union[None, np.ndarray]:
-        gcenter = self.WorldToGrid(*center)
+    def RandomNoCollisionCellInRange(self, center: WorldCoord, radius: float) -> Union[WorldCoord, None]:
+        gcenter = self.WorldToGrid(center)
         gradius = math.ceil(radius / self.m_resolution)
         ncs = self._NeighbourCircleCells_(gcenter, gradius)
         idx_set = set(range(ncs.shape[0]))
         while True:
             idx = random.sample(idx_set, 1)[0]
             idx_set.remove(idx)
-            if not self._IsCellInCollision(*ncs[idx]) and self._IsCellValid(*ncs[idx]):
-                return self.GridToWorld(*ncs[idx])
+            if not self._IsCellInCollision(ncs[idx]) and self._IsCellValid(ncs[idx]):
+                return self.GridToWorld(ncs[idx])
             if not idx_set:
                 return None
 
-    def RandomNoCollisionCell(self) -> np.ndarray:
-        return self.GridToWorld(*self._RandomNoCollisionCell_())
+    def RandomNoCollisionCell(self) -> WorldCoord:
+        return self.GridToWorld(self._RandomNoCollisionCell_())
 
-    def _RandomNoCollisionCell_(self, x_range: List[int] = None, y_range: List[int] = None) -> np.ndarray:
-        if x_range is None:
-            x_range = [0, self.m_x_cell_num-1]
-        if y_range is None:
-            y_range = [0, self.m_y_cell_num-1]
+    def _RandomNoCollisionCell_(self, ranges: VecInt2d = None) -> np.ndarray:
+        if ranges is None:
+            ranges = np.c_[np.zeros(self.m_dim, dtype=int), self.m_size_ - 1]
         collision = True
         while collision:
-            gx = np.random.randint(*x_range)
-            gy = np.random.randint(*y_range)
-            collision = self._IsCellInCollision(gx, gy)
-        return np.array([gx, gy])
+            gcoord = []
+            for range_ in ranges:
+                gcoord.append(np.random.randint(range_))
+            gcoord = np.array(gcoord)
+            collision = self._IsCellInCollision(gcoord)
+        return gcoord
 
     def GetGridBound(self):
-        # x0, x1, y0, y1
-        return self.m_x_origin - self.m_resolution_half, self.m_x_origin + self.m_x_cell_num * self.m_resolution - self.m_resolution_half, \
-            self.m_y_origin - self.m_resolution_half, self.m_y_origin + \
-            self.m_resolution * self.m_y_cell_num - self.m_resolution_half
+        # x0, y0, x1, y1
+        return np.r_[self.m_origin - self.m_resolution_half, self.m_origin + self.m_size_ * self.m_resolution - self.m_resolution_half]
 
-    def IsCellInCollision(self, x: float, y: float):
-        return self._IsCellInCollision(*self.WorldToGrid(x, y))
+    def IsCellInCollision(self, coord: WorldCoord):
+        return self._IsCellInCollision(self.WorldToGrid(coord))
 
-    def _IsCellInCollision(self, x_idx: int, y_idx: int):
+    def _IsCellInCollision(self, gcoord: GridCoord):
         # return self.GetCell(x_idx, y_idx).m_obstacle
-        tg = np.array([x_idx, y_idx])
         for obs in self.m_obstacles:
             if isinstance(obs, Rectangle):
-                if np.all(obs.m_corner0 - self.m_clearance <= tg) and np.all(tg <= obs.m_corner1 + self.m_clearance):
+                if np.all(obs.m_corner0 - self.m_clearance_ <= gcoord) and np.all(gcoord <= obs.m_corner1 + self.m_clearance_):
                     return True
             elif isinstance(obs, Circle):
-                if np.linalg.norm(tg - obs.m_center) <= self.m_clearance + obs.m_radius:
+                if np.linalg.norm(gcoord - obs.m_center) <= self.m_clearance_ + obs.m_radius:
                     return True
         return False
 
-    def _IsCellValid(self, x_idx: int, y_idx: int):
-        return 0 <= x_idx < self.m_x_cell_num and 0 <= y_idx < self.m_y_cell_num
+    def _IsCellValid(self, gcoord: GridCoord):
+        gcoord = np.array(gcoord)
+        return np.all(0 <= gcoord) and np.all(gcoord < self.m_size_)
 
-    def WorldToGrid(self, x: float, y: float) -> np.ndarray:
-        x_idx, y_idx = math.floor((x - self.m_x_origin + self.m_resolution_half) / self.m_resolution), math.floor(
-            (y - self.m_y_origin + self.m_resolution_half) / self.m_resolution)
-        if self._IsCellValid(x_idx, y_idx):
-            return np.array([x_idx, y_idx])
+    def WorldToGrid(self, coord: WorldCoord) -> np.ndarray:
+        gcoord = ((coord - self.m_origin + self.m_resolution_half) /
+                  self.m_resolution).astype(int)
+        if self._IsCellValid(gcoord):
+            return gcoord
         else:
-            logger.error(
-                f"Out of grid range: {(x_idx, y_idx)}, current range {(self.m_x_cell_num, self.m_y_cell_num)}")
-            return None
+            msg = f"Out of grid range: {gcoord}, current range {self.m_size_}"
+            logger.error(msg)
+            raise ValueError(msg)
 
-    def GridToWorld(self, x_idx: int, y_idx: int):
-        if self._IsCellValid(x_idx, y_idx):
-            return np.array([x_idx * self.m_resolution + self.m_x_origin, y_idx * self.m_resolution + self.m_y_origin])
+    def GridToWorld(self, gcoord: GridCoord):
+        if self._IsCellValid(gcoord):
+            return self.m_origin + self.m_resolution * np.array(gcoord).astype(float)
         else:
-            logger.error(
-                f"Out of grid range: {(x_idx, y_idx)}, current range {(self.m_x_cell_num, self.m_y_cell_num)}")
-            return None
+            msg = f"Out of grid range: {gcoord}, current range {self.m_size_}"
+            logger.error(msg)
+            raise ValueError(msg)
 
-    def NeighbourCells_(self, point: np.ndarray) -> np.ndarray:
+    def NeighbourCells_(self, point: WorldCoord) -> List[GridCoord]:
         # world in, grid out
-        return self._NeighbourCells_(self.WorldToGrid(*point))
+        return self._NeighbourCells_(self.WorldToGrid(point))
 
-    def _NeighbourValidNoCollisionCells_(self, point: np.ndarray) -> np.ndarray:
+    def _NeighbourValidNoCollisionCells_(self, point: GridCoord) -> List[GridCoord]:
         ncs = self._NeighbourCells_(point)
         ncs_valid = []
         for c in ncs:
-            if self._IsCellValid(*c) and not self._IsCellInCollision(*c):
+            if self._IsCellValid(c) and not self._IsCellInCollision(c):
                 ncs_valid.append(c)
         return np.array(ncs_valid)
 
-    def NeighbourCells(self, point: np.ndarray) -> np.ndarray:
+    def NeighbourCells(self, point: WorldCoord) -> List[WorldCoord]:
         # world in, world out
-        return np.array([self.GridToWorld(*c) for c in self._NeighbourCells_(self.WorldToGrid(*point))])
+        return np.array([self.GridToWorld(c) for c in self._NeighbourCells_(self.WorldToGrid(point))])
 
-    def _NeighbourCells_(self, grid_idx: np.ndarray) -> np.ndarray:
-        # grid in, grid out
-        if self.m_neighbour_dxy is None:
-            self.m_neighbour_dxy = np.empty((8, 2), dtype=int)
+    def _NeighbourCells_(self, gcoord: GridCoord) -> List[GridCoord]:
+        # only for 2d grid
+        if self.m_neighbour_delta_coord_ is None:
+            self.m_neighbour_delta_coord_ = np.empty((8, 2), dtype=int)
             i = 0
             for dx in range(-1, 2):
                 for dy in range(-1, 2):
                     if dx == 0 and dy == 0:
                         continue
-                    self.m_neighbour_dxy[i] = [dx, dy]
+                    self.m_neighbour_delta_coord_[i] = [dx, dy]
                     i += 1
-        return self.m_neighbour_dxy + grid_idx
+        return self.m_neighbour_delta_coord_ + gcoord
 
-    def _NeighbourCircleCells_(self, gcenter: np.ndarray, gradius: int) -> np.ndarray:
+    def _NeighbourCircleCells_(self, gcenter: GridCoord, gradius: int) -> List[GridCoord]:
         max_dist_sq = gradius * gradius
         gresult = []
         for dx in range(-gradius, gradius+1):
@@ -232,18 +240,18 @@ class DistanceField:
                 gresult.append(gcenter + np.array([dx, dy]))
         return np.array(gresult)
 
-    def _CellBoundPoints(self, x_idx: int, y_idx: int) -> np.ndarray:
-        x, y = self.GridToWorld(x_idx, y_idx)
+    def _CellBoundPoints(self, gcoord: GridCoord) -> VecFloat2d:
+        x, y = self.GridToWorld(gcoord)
         cell_x0 = x - self.m_resolution_half
         cell_x1 = x + self.m_resolution_half
         cell_y0 = y - self.m_resolution_half
         cell_y1 = y + self.m_resolution_half
         return np.array([[cell_x0, cell_x1, cell_x1, cell_x0], [cell_y0, cell_y0, cell_y1, cell_y1]])
 
-    def _Compute2PointsGradient(self, gpoint0: np.ndarray, gpoint1: np.ndarray) -> np.ndarray:
-        return self.Compute2PointsGradient(self.GridToWorld(*gpoint0), self.GridToWorld(*gpoint1))
+    def _Compute2PointsGradient(self, gpoint0: GridCoord, gpoint1: GridCoord) -> VecFloat:
+        return self.Compute2PointsGradient(self.GridToWorld(gpoint0), self.GridToWorld(gpoint1))
 
-    def Compute2PointsGradient(self, point0: np.ndarray, point1: np.ndarray) -> np.ndarray:
+    def Compute2PointsGradient(self, point0: WorldCoord, point1: WorldCoord) -> VecFloat:
         grd = point1 - point0
         grd_norm = np.linalg.norm(grd)
         dist_sq = np.square(grd_norm)
@@ -253,45 +261,46 @@ class DistanceField:
         else:
             return np.zeros(point0.shape[0])
 
-    def AddObstacleRectangle(self, point0: np.ndarray, point1: np.ndarray, update_nearby_grd=False):
-        obs = Rectangle(self.WorldToGrid(*point0), self.WorldToGrid(*point1))
+    def AddObstacleRectangle(self, point0: WorldCoord, point1: WorldCoord, update_nearby_grd=False):
+        obs = Rectangle(self.WorldToGrid(point0), self.WorldToGrid(point1))
         self.m_obstacles.append(obs)
-        self.m_max_distance_cells = max(
-            self.m_max_distance_cells, math.ceil(max(obs.m_corner1 - obs.m_corner0) + self.m_clearance))
-        self.m_max_distance = self.m_max_distance_cells * self.m_resolution
+        self.m_max_distance_ = max(
+            self.m_max_distance_, math.ceil(max(obs.m_corner1 - obs.m_corner0) + self.m_clearance_))
+        self.m_max_distance = self.m_max_distance_ * self.m_resolution
         for x in np.arange(point0[0], point1[0], self.m_resolution):
             for y in np.arange(point0[1], point1[1], self.m_resolution):
-                self._AddObstacle(self.WorldToGrid(x, y), update_nearby_grd)
+                self._AddObstacle(self.WorldToGrid(
+                    np.array([x, y])), update_nearby_grd)
 
-    def AddObstacleCircle(self, center: np.ndarray, radius: float, update_nearby_grd=False):
-        gcenter = self.WorldToGrid(*center)
+    def AddObstacleCircle(self, center: WorldCoord, radius: float, update_nearby_grd=False):
+        gcenter = self.WorldToGrid(center)
         gradius = math.ceil(radius / self.m_resolution)
         obs = Circle(gcenter, gradius)
         self.m_obstacles.append(obs)
-        self.m_max_distance_cells = max(
-            self.m_max_distance_cells, obs.m_radius + self.m_clearance)
-        self.m_max_distance = self.m_max_distance_cells * self.m_resolution
+        self.m_max_distance_ = max(
+            self.m_max_distance_, obs.m_radius + self.m_clearance_)
+        self.m_max_distance = self.m_max_distance_ * self.m_resolution
         for gcoord in self._NeighbourCircleCells_(gcenter, gradius):
             self._AddObstacle(gcoord, update_nearby_grd)
 
-    def AddObstacles(self, coords_in_world: np.ndarray, update_nearby_grd: bool = False):
-        for x, y in coords_in_world:
-            og = self.WorldToGrid(x, y)
+    def AddObstacles(self, coords: WorldCoord, update_nearby_grd: bool = False):
+        for coord in coords:
+            og = self.WorldToGrid(coord)
             self._AddObstacle(og, update_nearby_grd)
-        logger.info(f"Finish adding {len(coords_in_world)} obstacles")
+        logger.info(f"Finish adding {len(coords)} obstacles")
 
-    def _AddObstacle(self, grid_idx: np.ndarray, update_nearby_grd: bool = False):
-        ocell = self.m_grid[grid_idx[0]][grid_idx[1]]
+    def _AddObstacle(self, gcoord: GridCoord, update_nearby_grd: bool = False):
+        ocell = self._GetCell(gcoord)
         if ocell.m_obstacle:
             return
         ocell.m_obstacle = True
         if not update_nearby_grd:
             return
-        for dx in range(-self.m_max_distance_cells, self.m_max_distance_cells + 1):
-            for dy in range(-self.m_max_distance_cells, self.m_max_distance_cells + 1):
+        for dx in range(-self.m_max_distance_, self.m_max_distance_ + 1):
+            for dy in range(-self.m_max_distance_, self.m_max_distance_ + 1):
                 dxy = np.array([dx, dy])
-                tg = grid_idx + dxy
-                if not self._IsCellValid(*tg):
+                tg = gcoord + dxy
+                if not self._IsCellValid(tg):
                     continue
                 self.m_grid[tg[0]][tg[1]
                                    ].m_gradient += self._Compute2PointsGradient(grid_idx, tg)
@@ -314,10 +323,9 @@ class DistanceField:
         plt.plot(0, 0, "o", ms=8)
         plt.title(title)
         logger.debug(
-            f"DistanceField {self.m_x_cell_num} {self.m_y_cell_num}, origin: {self.GridToWorld(0, 0)}")
-        logger.debug(f"")
-        plt.plot(*self.GridToWorld(0, 0), "o", ms=4)
-        x0, x1, y0, y1 = self.GetGridBound()
+            f"DistanceField {self.m_size_}, origin: {self.m_origin}")
+        plt.plot(*self.m_origin, "o", ms=4)
+        x0, y0, x1, y1 = self.GetGridBound()
         plt.plot([x0, x1], [y0, y0], "r", lw=2)
         plt.plot([x0, x1], [y1, y1], "r", lw=2)
         plt.plot([x0, x0], [y0, y1], "r", lw=2)
@@ -326,8 +334,8 @@ class DistanceField:
         if show_obstacle:
             for obs in self.m_obstacles:
                 if isinstance(obs, Rectangle):
-                    corner0 = self._CellBoundPoints(*obs.m_corner0)[:, 0]
-                    corner2 = self._CellBoundPoints(*obs.m_corner1)[:, 2]
+                    corner0 = self._CellBoundPoints(obs.m_corner0)[:, 0]
+                    corner2 = self._CellBoundPoints(obs.m_corner1)[:, 2]
                     # corner1 = np.array([corner2[0], corner0[1]])
                     # corner3 = np.array([corner0[0], corner2[1]])
                     # plt.fill(*np.c_[corner0, corner1, corner2, corner3], "r")
@@ -335,19 +343,20 @@ class DistanceField:
                         corner0, *(corner2 - corner0), fill=True, color="r"))
                 elif isinstance(obs, Circle):
                     ax.add_artist(plt.Circle(self.GridToWorld(
-                        *obs.m_center), radius=self.m_resolution * obs.m_radius, color="r"))
+                        obs.m_center), radius=self.m_resolution * obs.m_radius, color="r"))
 
         if show_grid or show_gradient or show_obstacle_verbose:
-            for x_idx in range(self.m_x_cell_num):
+            for x_idx in range(self.m_size_[0]):
                 if show_grid:
-                    plt.plot([x_idx * self.m_resolution - self.m_resolution_half + self.m_x_origin] * 2,
+                    plt.plot([x_idx * self.m_resolution - self.m_resolution_half + self.m_origin[0]] * 2,
                              [y0, y1], "r", lw=1)
-                for y_idx in range(self.m_y_cell_num):
+                for y_idx in range(self.m_size_[1]):
+                    gcoord = np.array([x_idx, y_idx], dtype=int)
                     if show_grid:
                         plt.plot([x0, x1], [y_idx * self.m_resolution -
-                                            self.m_resolution_half + self.m_y_origin] * 2, "r", lw=1)
-                    cell = self.m_grid[x_idx][y_idx]
-                    cell_bound_points = self._CellBoundPoints(x_idx, y_idx)
+                                            self.m_resolution_half + self.m_origin[1]] * 2, "r", lw=1)
+                    cell = self._GetCell(gcoord)
+                    cell_bound_points = self._CellBoundPoints(gcoord)
                     if show_obstacle_verbose and cell.m_obstacle:
                         plt.fill(*cell_bound_points, "r")
                     elif show_gradient:
@@ -355,7 +364,7 @@ class DistanceField:
                         gradient_norm /= 3
                         plt.fill(*cell_bound_points,
                                  color=[min(1, max(0, 1 - gradient_norm))]*3)
-                        cell_coord = self.GridToWorld(x_idx, y_idx)
+                        cell_coord = self.GridToWorld(gcoord)
                         gnorm = np.linalg.norm(cell.m_gradient)
                         if gnorm > 0:
                             plt.arrow(*cell_coord, *(self.m_resolution_half * cell.m_gradient / gnorm),
@@ -407,8 +416,7 @@ class DistanceField:
 
 def Test_DistanceField():
     # Test_DistanceField
-    field = DistanceField(x_size=1.2, y_size=1.2, x_origin=0.0,
-                          y_origin=0.0, resolution=0.2, max_distance=0.05)
+    field = DistanceField()
     # field.AddObstacles([[0.4, 0.4], [0.39, 0.4], [0.38, 0.4], [0.37, 0.4]])
     field.AddObstacleRectangle([0.5, 0.5], [0.7, 0.6])
     # for cgrid in field.NeighbourCells_(np.array([0.4, 0.4])):
@@ -419,7 +427,6 @@ def Test_DistanceField():
     # print(field.NeighbourCells(np.array([0.5, 0.5])))
     field.Display(path=path, show_obstacle=True,
                   show_obstacle_verbose=True, show_grid=True)
-    embed()
 
 
 if __name__ == "__main__":

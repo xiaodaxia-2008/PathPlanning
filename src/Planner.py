@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 class Planner:
     def __init__(self, learn_rate: float = 0.001, resolution=0.1, max_distance: float = 0.01):
-        self.m_field = DistanceField(x_size=1.0, y_size=1.0, x_origin=0.0,
-                                     y_origin=0.0, resolution=resolution, max_distance=max_distance)
+        self.m_field = DistanceField(size=np.ones(2), origin=np.zeros(2),
+                                     resolution=resolution, max_distance=max_distance)
         self.m_learn_rate = learn_rate
         self.m_smooth_weight = 0.4
         self.m_obstacle_weight = 0.5
@@ -25,10 +25,10 @@ class Planner:
         self.m_field.AddObstacleRectangle(point0, point1, update_nearby_grd)
 
     def PlanWithGradientDescend(self, point0: np.ndarray, point1: np.ndarray, num_free_points: int = 10, show_process: bool = False, process_steps: int = 5, clearance: float = 0.01):
-        if self.m_field.IsCellInCollision(*point0):
+        if self.m_field.IsCellInCollision(point0):
             logger.error("Start point {} is in collision!".format(point0))
             return False, np.array([point0, point1])
-        elif self.m_field.IsCellInCollision(*point1):
+        elif self.m_field.IsCellInCollision(point1):
             logger.error("End point {} is in collision!".format(point1))
             return False, np.array([point0, point1])
         self.m_field.m_clearance = math.ceil(
@@ -60,7 +60,7 @@ class Planner:
                 if collision_free and it_collision_free == self.m_max_iterations:
                     it_collision_free = iteration
                     self.m_learn_rate *= 0.5
-                logger.info(
+                logger.debug(
                     "Planning, iteration {}, collision free: {}, obstacle cost: {:6.5f}, smooth cost: {:6.5f}, curvature cost: {:6.5f}".format(iteration, collision_free, o_cost, s_cost, c_cost))
             logger.info(
                 "Planning finished with {} iterations, collision free: {}".format(iteration, collision_free))
@@ -70,17 +70,17 @@ class Planner:
         return collision_free, path
 
     def PlanWithAStar(self, point0: List[float], point1: List[float], clearance=0.001, speed_prior: bool = False):
-        if self.m_field.IsCellInCollision(*point0):
+        if self.m_field.IsCellInCollision(point0):
             logger.error("Start point {} is in collision!".format(point0))
             return False, np.array([point0, point1])
-        elif self.m_field.IsCellInCollision(*point1):
+        elif self.m_field.IsCellInCollision(point1):
             logger.error("End point {} is in collision!".format(point1))
             return False, np.array([point0, point1])
         self.m_field.m_clearance = math.ceil(
             clearance / self.m_field.m_resolution)
         field = self.m_field
-        path, history = AStartPath(field, field.WorldToGrid(*point0),
-                                   field.WorldToGrid(*point1), speed_prior=speed_prior)
+        path, history = AStartPath(field, field.WorldToGrid(point0),
+                                   field.WorldToGrid(point1), speed_prior=speed_prior)
         if path is not None:
             path = self.SmoothFilter(path)
             return True, path, history
@@ -88,10 +88,10 @@ class Planner:
             return False, None, None
 
     def PlanWithRRT(self, point0: List[float], point1: List[float], step_size=0.2, max_iterations=1000, show_process=False, process_steps=1, clearance=0.001):
-        if self.m_field.IsCellInCollision(*point0):
+        if self.m_field.IsCellInCollision(point0):
             logger.error("Start point {} is in collision!".format(point0))
             return False, np.array([point0, point1])
-        elif self.m_field.IsCellInCollision(*point1):
+        elif self.m_field.IsCellInCollision(point1):
             logger.error("End point {} is in collision!".format(point1))
             return False, np.array([point0, point1])
         # TODO: need to be improved
@@ -138,17 +138,17 @@ class Planner:
     def CheckLinearPathCollisionFree(self, start, end, num=50):
         for s in np.linspace(0, 1, num=num, endpoint=True):
             p = (1-s) * start + s * end
-            if self.m_field.IsCellInCollision(*p):
+            if self.m_field.IsCellInCollision(p):
                 return False
         return True
 
     def CheckPointsCollisionFree(self, points):
         half_idx = points.shape[0] // 2
         for point in points[half_idx:]:
-            if self.m_field.IsCellInCollision(*point):
+            if self.m_field.IsCellInCollision(point):
                 return False
         for point in points[:half_idx]:
-            if self.m_field.IsCellInCollision(*point):
+            if self.m_field.IsCellInCollision(point):
                 return False
         return True
 
@@ -161,7 +161,7 @@ class Planner:
         for i in range(num_free_points):
             point = waypoints[i+1]
             grd = self.m_field.GetObstacleCenterGradient(
-                *point) * center_weight + self.m_field.GetNearbyObstacleGradient(*point) * nearby_weight
+                point) * center_weight + self.m_field.GetNearbyObstacleGradient(point) * nearby_weight
             cost += np.linalg.norm(grd)
             increments[i] = grd
         return cost * self.m_obstacle_weight, increments * self.m_obstacle_weight
@@ -204,7 +204,7 @@ class Planner:
             ss_waypoints, waypoints, bc_type="clamped")
         waypoints = np.array([path(s) for s in np.linspace(
             0.0, ss_waypoints[-1], waypoints.shape[0], endpoint=True)])
-        logger.info("Finish uniforming path!")
+        logger.debug("Finish uniforming path!")
         return waypoints
 
     @staticmethod
@@ -298,7 +298,7 @@ def Test_Planner(display_result=False, update_nearby_grd=False, random_seed=None
             i += 1
             np.random.seed(i)
             points = np.random.uniform(low=0.15, high=0.85, size=(2, 2))
-        planner.AddObstacleRectangle(*points, update_nearby_grd)
+        planner.AddObstacleRectangle(points, update_nearby_grd)
         logger.info("Random seed {}".format(i))
 
     pos_start = np.array([0.1, 0.1])

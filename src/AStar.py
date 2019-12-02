@@ -38,7 +38,7 @@ def AStartPath(field, start: Union[List[int], Tuple[int], np.ndarray], end: Unio
         if node in visited_set:
             continue
         visited_set[node] = (father_node, dist_to_start)
-        visited_history.append(field.GridToWorld(*node))
+        visited_history.append(field.GridToWorld(node))
         if end == node:
             find_path = True
             break
@@ -69,7 +69,7 @@ def AStartPath(field, start: Union[List[int], Tuple[int], np.ndarray], end: Unio
         path = []
         node = end
         while node is not None:
-            path.append(field.GridToWorld(*node))
+            path.append(field.GridToWorld(node))
             node = visited_set[node][0]
         return np.array(path), np.array(visited_history)
     else:
@@ -77,8 +77,7 @@ def AStartPath(field, start: Union[List[int], Tuple[int], np.ndarray], end: Unio
 
 
 def Test_AStar(random_seed=None):
-    field = DistanceField(x_size=1.0, y_size=1.0, x_origin=0.0,
-                          y_origin=0.0, resolution=0.05, max_distance=0.1, clearance=0)
+    field = DistanceField()
     field.AddObstacleRectangle(np.array([0.5, 0.5]), np.array(
         [0.6, 0.6]), update_nearby_grd=False)
     for _ in range(2):
