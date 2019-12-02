@@ -26,10 +26,10 @@ class Planner:
 
     def PlanWithGradientDescend(self, point0: np.ndarray, point1: np.ndarray, num_free_points: int = 10, show_process: bool = False, process_steps: int = 5, clearance: float = 0.01):
         if self.m_field.IsCellInCollision(*point0):
-            logger.error(f"Start point {point0} is in collision!")
+            logger.error("Start point {} is in collision!".format(point0))
             return False, np.array([point0, point1])
         elif self.m_field.IsCellInCollision(*point1):
-            logger.error(f"End point {point1} is in collision!")
+            logger.error("End point {} is in collision!".format(point1))
             return False, np.array([point0, point1])
         self.m_field.m_clearance = math.ceil(
             clearance / self.m_field.m_resolution)
@@ -61,9 +61,9 @@ class Planner:
                     it_collision_free = iteration
                     self.m_learn_rate *= 0.5
                 logger.info(
-                    f"Planning, iteration {iteration}, collision free: {collision_free}, obstacle cost: {o_cost :6.5f}, smooth cost: {s_cost :6.5f}, curvature cost: {c_cost :6.5f}")
+                    "Planning, iteration {}, collision free: {}, obstacle cost: {:6.5f}, smooth cost: {:6.5f}, curvature cost: {:6.5f}".format(iteration, collision_free, o_cost, s_cost, c_cost))
             logger.info(
-                f"Planning finished with {iteration} iterations, collision free: {collision_free}")
+                "Planning finished with {} iterations, collision free: {}".format(iteration, collision_free))
         except Exception as e:
             logger.error("Got exception: {}".format(e))
             collision_free = False
@@ -71,13 +71,11 @@ class Planner:
 
     def PlanWithAStar(self, point0: List[float], point1: List[float], clearance=0.001, speed_prior: bool = False):
         if self.m_field.IsCellInCollision(*point0):
-            logger.error(f"Start point {point0} is in collision!")
-            from IPython import embed
-            embed()
-            return False, np.array([point0, point1]), None
+            logger.error("Start point {} is in collision!".format(point0))
+            return False, np.array([point0, point1])
         elif self.m_field.IsCellInCollision(*point1):
-            logger.error(f"End point {point1} is in collision!")
-            return False, np.array([point0, point1]), None
+            logger.error("End point {} is in collision!".format(point1))
+            return False, np.array([point0, point1])
         self.m_field.m_clearance = math.ceil(
             clearance / self.m_field.m_resolution)
         field = self.m_field
@@ -90,6 +88,12 @@ class Planner:
             return False, None, None
 
     def PlanWithRRT(self, point0: List[float], point1: List[float], step_size=0.2, max_iterations=1000, show_process=False, process_steps=1, clearance=0.001):
+        if self.m_field.IsCellInCollision(*point0):
+            logger.error("Start point {} is in collision!".format(point0))
+            return False, np.array([point0, point1])
+        elif self.m_field.IsCellInCollision(*point1):
+            logger.error("End point {} is in collision!".format(point1))
+            return False, np.array([point0, point1])
         # TODO: need to be improved
         field = self.m_field
         field.m_clearance = math.ceil(
@@ -109,7 +113,7 @@ class Planner:
                 next_point = field.RandomNoCollisionCellInRange(
                     cur_point, step_size)
                 if next_point is None:
-                    logger.error(f"Failed to get RandomNoCollisionCellInRange")
+                    logger.error("Failed to get RandomNoCollisionCellInRange")
                     return False, None
                 gen_next_point = self.CheckLinearPathCollisionFree(
                     cur_point, next_point)
@@ -120,7 +124,7 @@ class Planner:
                     iteration))
             iteration += 1
         logger.info(
-            f"Finish planning with RRT with {iteration} iterations, find path {find_path}")
+            "Finish planning with RRT with {} iterations, find path {}".format(iteration, find_path))
         if show_process:
             field.Display(path=path, title="Final RRT path without shortcut")
         # Short cut path
@@ -242,9 +246,9 @@ class Planner:
             else:
                 continue
             logger.debug(
-                f"Iteration {iteration}, idx left {idx_left}, idx right {idx_right}, idx max {idx_max}, len idx visited {len(idx_visited)}, path len {len(path)}")
+                "Iteration {}, idx left {}, idx right {}, idx max {}, len idx visited {}, path len {}".format(
+                    iteration, idx_left, idx_right, idx_max, len(idx_visited), len(path)))
             if len(idx_visited) == round((len(path) * len(path) - 3 * (len(path) - 1) + 2) * 0.5):
-                logger.info(f"len(idx_visited): {len(idx_visited)}")
                 break
             if (idx_left, idx_right) not in idx_visited:
                 idx_visited.add((idx_left, idx_right))

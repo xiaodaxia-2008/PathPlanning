@@ -18,7 +18,7 @@ def CreateGif(image_list, gif_name, duration=0.2):
     for image_name in image_list:
         frames.append(imageio.imread(image_name))
     imageio.mimsave(gif_name, frames, 'GIF', duration=duration)
-    logger.info(f"Save Gif picture to {CWD_DIR}/{gif_name}")
+    logger.info("Save Gif picture to {}/{}".format(CWD_DIR, gif_name))
 
 
 if __name__ == "__main__":

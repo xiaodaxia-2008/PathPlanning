@@ -53,10 +53,10 @@ def Planner_Example(pos_start=np.array([0.1, 0.1]), pos_target=np.array([0.94, 0
             pos_start, pos_target, clearance=0.001, speed_prior=a_star_speed_prior)
     else:
         logger.error(
-            f'method should be one of ["AStar", "RRT", "GradientDescend"], required is {method}')
+            'method should be one of ["AStar", "RRT", "GradientDescend"], required is {}'.format(method))
         return False
     if display_result:
-        planner.m_field.Display(path=path, title=f"{method} Planning Result",
+        planner.m_field.Display(path=path, title="{} Planning Result".format(method),
                                 show_obstacle_verbose=True, history_data=history_data, show_grid=True)
     return success
 
